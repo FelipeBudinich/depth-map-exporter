@@ -1,0 +1,23 @@
+{
+  "appId": "dev.depth-exporter.gui",
+  "productName": "Depth Exporter",
+  "asar": true,
+  "files": [
+    "dist/main/**/*",
+    "dist/renderer/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "target": "dir"
+  },
+  "extraResources": [
+    {
+      "from": "resources/bin",
+      "to": "bin"
+    },
+    {
+      "from": "resources/models",
+      "to": "models"
+    }
+  ]
+}

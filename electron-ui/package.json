@@ -1,0 +1,32 @@
+{
+  "name": "depth-exporter-gui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin Electron GUI for the native Swift depth-exporter CLI",
+  "main": "dist/main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/renderer/styles.css -o ./dist/renderer/assets/styles.css --minify",
+    "build:main": "tsc -p tsconfig.json",
+    "copy:renderer": "node ./scripts/copy-renderer.cjs",
+    "prepare:assets": "npm run build:css && npm run copy:renderer",
+    "dev": "npm run prepare:assets && npm run build:main && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package:mac": "npm run prepare:assets && npm run build:main && electron-builder --mac --arm64"
+  },
+  "dependencies": {
+    "htmx.org": "^2.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "autoprefixer": "^10.4.21",
+    "electron": "^37.2.1",
+    "electron-builder": "^26.0.12",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3"
+  },
+  "build": {
+    "extends": "./electron-builder.json"
+  }
+}

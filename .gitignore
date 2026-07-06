@@ -1,0 +1,25 @@
+.DS_Store
+*.log
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Electron / Node
+electron-ui/node_modules/
+electron-ui/dist/
+electron-ui/npm-debug.log*
+electron-ui/yarn-debug.log*
+electron-ui/yarn-error.log*
+
+# Local test and generated media
+test-input*.mp4
+*-depth.mp4
+*-depth-audio.mp4
+*-depth-test.mp4
+*-depth-test-audio.mp4
+
+# macOS app packaging leftovers
+*.dmg
+*.zip
