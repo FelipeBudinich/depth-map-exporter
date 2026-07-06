@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Thin Electron GUI for the native Swift depth-exporter CLI",
+  "license": "SEE LICENSE IN ../LICENSE",
   "main": "dist/main/index.js",
   "type": "commonjs",
   "scripts": {

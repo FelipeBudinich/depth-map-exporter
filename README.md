@@ -158,3 +158,7 @@ The GUI pre-fills the model path when that bundled model exists, but users can c
 The GUI exposes unchecked controls for `Include original audio` and `Export stacked test video`. By default it still exports a silent depth-only MP4. When enabled, those controls pass `--include-audio` and `--stack-vertical` directly to the Swift CLI. Suggested output names use `-depth.mp4`, `-depth-audio.mp4`, `-depth-test.mp4`, or `-depth-test-audio.mp4` based on the selected mode.
 
 Model inference size is controlled separately from exported MP4 size by the V2 CLI settings: `--model-input`, `--model-short-side`, `--model-size-multiple`, and `--output-max-side`. In stacked GUI exports, `--output-max-side` controls each panel size; the same bitrate field is used, so raise it manually for high-detail comparison videos.
+
+## License
+
+Project-authored code, documentation, and assets are covered by [LICENSE](LICENSE). Third-party materials are not relicensed by this project; they remain under their own licenses and terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for model, Electron, npm, and platform notice details.
