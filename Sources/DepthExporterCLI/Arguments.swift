@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 enum ComputeMode: String, CaseIterable {
@@ -37,6 +38,11 @@ enum ModelInputOption: Equatable {
     }
 }
 
+enum BoxTrackingLevel: String, CaseIterable {
+    case fast
+    case accurate
+}
+
 struct ExportConfig {
     let inputURL: URL
     let outputURL: URL
@@ -58,15 +64,38 @@ struct ExportConfig {
     let dryRun: Bool
 }
 
+struct TrackBoxesOptions {
+    let inputURL: URL
+    let outputURL: URL
+    let peopleCount: Int
+    let initialBoxes: [CGRect]?
+    let initScanFrames: Int
+    let deadReckoningWindow: Int
+    let maxDeadReckonFrames: Int
+    let trackingLevel: BoxTrackingLevel
+    let trackerConfidenceThreshold: Float
+    let reacquireInterval: Int
+    let reacquireEnabled: Bool
+    let drawLabels: Bool
+    let debugJSONURL: URL?
+    let debug: Bool
+    let bitrate: Int
+    let overwrite: Bool
+    let progressJSON: Bool
+}
+
 enum ParseResult {
     case help
+    case trackBoxesSelfTest
     case run(ExportConfig)
+    case trackBoxes(TrackBoxesOptions)
 }
 
 enum Arguments {
     static let usage = """
     Usage:
       depth-exporter --input input.mp4 --output output-depth.mp4 --model DepthAnythingV2SmallF16.mlpackage [options]
+      depth-exporter track-boxes input.mov --output tracked-boxes.mov --people-count 2 [options]
 
     Required:
       --input <path>                 Input H.264 MP4 video
@@ -91,6 +120,22 @@ enum Arguments {
       --progress-json                Emit JSONL progress to stdout
       --dry-run                      Validate settings and print metadata without exporting
       --help                         Print this help
+
+    Experimental box tracking:
+      track-boxes <path>             Track people as colored bounding boxes only
+      --people-count <1...4>         Required number of people to track
+      --initial-boxes <boxes>        x,y,width,height;... in output pixel coordinates
+      --init-scan-frames <int>       Auto-init scan limit (default: 120)
+      --dead-reckoning-window <int>  Correction window (default: 120)
+      --max-dead-reckon-frames <int> Dead-reckoning limit (default: 120)
+      --tracking-level <level>       fast | accurate (default: accurate)
+      --tracker-confidence-threshold <float> Minimum tracker confidence (default: 0.35)
+      --reacquire-enabled <bool>     true | false (default: true)
+      --reacquire-interval <int>     Human rectangle recovery interval (default: 15)
+      --draw-labels <bool>           true | false (default: true)
+      --debug-json <path>            Write box tracking debug JSON
+      --debug                        Draw debug box styles and source labels
+
     Model sizing:
       --model-input, --model-short-side, and --model-size-multiple control Core ML inference resolution.
       --model-resize controls how decoded frames are fitted into that inference size.
@@ -106,6 +151,12 @@ enum Arguments {
         let args = Array(rawArguments.dropFirst())
         if args.contains("--help") || args.contains("-h") {
             return .help
+        }
+        if args == ["--track-boxes-self-test"] {
+            return .trackBoxesSelfTest
+        }
+        if args.first == "track-boxes" {
+            return .trackBoxes(try parseTrackBoxes(Array(args.dropFirst())))
         }
 
         var inputPath: String?
@@ -223,6 +274,115 @@ enum Arguments {
         ))
     }
 
+    private static func parseTrackBoxes(_ args: [String]) throws -> TrackBoxesOptions {
+        var inputPath: String?
+        var outputPath: String?
+        var peopleCount: Int?
+        var initialBoxes: [CGRect]?
+        var initScanFrames = 120
+        var deadReckoningWindow = 120
+        var maxDeadReckonFrames = 120
+        var trackingLevel = BoxTrackingLevel.accurate
+        var trackerConfidenceThreshold: Float = 0.35
+        var reacquireInterval = 15
+        var reacquireEnabled = true
+        var drawLabels = true
+        var debugJSONPath: String?
+        var debug = false
+        var bitrate = 12_000_000
+        var overwrite = false
+        var progressJSON = false
+
+        var index = 0
+        if let first = args.first, !first.hasPrefix("--") {
+            inputPath = first
+            index = 1
+        }
+
+        while index < args.count {
+            let flag = args[index]
+            switch flag {
+            case "--input":
+                inputPath = try value(after: flag, in: args, index: &index)
+            case "--output":
+                outputPath = try value(after: flag, in: args, index: &index)
+            case "--people-count":
+                peopleCount = try int(after: flag, in: args, index: &index)
+            case "--initial-boxes":
+                initialBoxes = try parseBoxes(try value(after: flag, in: args, index: &index), flag: flag)
+            case "--init-scan-frames":
+                initScanFrames = try positiveInt(after: flag, in: args, index: &index)
+            case "--dead-reckoning-window":
+                deadReckoningWindow = try nonNegativeInt(after: flag, in: args, index: &index)
+            case "--max-dead-reckon-frames":
+                maxDeadReckonFrames = try nonNegativeInt(after: flag, in: args, index: &index)
+            case "--tracking-level":
+                let raw = try value(after: flag, in: args, index: &index)
+                guard let parsed = BoxTrackingLevel(rawValue: raw) else {
+                    throw AppError.invalidArguments("Invalid --tracking-level value '\(raw)'. Expected one of: \(BoxTrackingLevel.caseList).")
+                }
+                trackingLevel = parsed
+            case "--tracker-confidence-threshold":
+                trackerConfidenceThreshold = try float(after: flag, in: args, index: &index)
+            case "--reacquire-enabled":
+                reacquireEnabled = try bool(after: flag, in: args, index: &index)
+            case "--reacquire-interval":
+                reacquireInterval = try positiveInt(after: flag, in: args, index: &index)
+            case "--draw-labels":
+                drawLabels = try bool(after: flag, in: args, index: &index)
+            case "--debug-json":
+                debugJSONPath = try value(after: flag, in: args, index: &index)
+            case "--debug":
+                debug = true
+            case "--bitrate":
+                bitrate = try positiveInt(after: flag, in: args, index: &index)
+            case "--overwrite":
+                overwrite = true
+            case "--progress-json":
+                progressJSON = true
+            default:
+                throw AppError.invalidArguments("Unknown track-boxes argument '\(flag)'. Run depth-exporter --help for usage.")
+            }
+            index += 1
+        }
+
+        guard let inputPath else {
+            throw AppError.invalidArguments("Missing track-boxes input path.")
+        }
+        guard let outputPath else {
+            throw AppError.invalidArguments("Missing required flag --output for track-boxes.")
+        }
+        guard let peopleCount else {
+            throw AppError.invalidArguments("Missing required flag --people-count.")
+        }
+        guard (1...4).contains(peopleCount) else {
+            throw AppError.invalidArguments("--people-count must be between 1 and 4.")
+        }
+        if let initialBoxes, initialBoxes.count != peopleCount {
+            throw AppError.invalidArguments("--initial-boxes count (\(initialBoxes.count)) must equal --people-count (\(peopleCount)).")
+        }
+
+        return TrackBoxesOptions(
+            inputURL: URL(fileURLWithPath: inputPath).standardizedFileURL,
+            outputURL: URL(fileURLWithPath: outputPath).standardizedFileURL,
+            peopleCount: peopleCount,
+            initialBoxes: initialBoxes,
+            initScanFrames: initScanFrames,
+            deadReckoningWindow: deadReckoningWindow,
+            maxDeadReckonFrames: maxDeadReckonFrames,
+            trackingLevel: trackingLevel,
+            trackerConfidenceThreshold: trackerConfidenceThreshold,
+            reacquireInterval: reacquireInterval,
+            reacquireEnabled: reacquireEnabled,
+            drawLabels: drawLabels,
+            debugJSONURL: debugJSONPath.map { URL(fileURLWithPath: $0).standardizedFileURL },
+            debug: debug,
+            bitrate: bitrate,
+            overwrite: overwrite,
+            progressJSON: progressJSON
+        )
+    }
+
     private static func parseModelInput(_ raw: String) throws -> ModelInputOption {
         if raw == "auto" {
             return .auto
@@ -237,6 +397,31 @@ enum Arguments {
             throw AppError.invalidArguments("Invalid --model-input value '\(raw)'. Expected auto or WIDTHxHEIGHT with positive integers.")
         }
         return .explicit(width: width, height: height)
+    }
+
+    private static func parseBoxes(_ raw: String, flag: String) throws -> [CGRect] {
+        let boxStrings = raw.split(separator: ";", omittingEmptySubsequences: false)
+        guard !boxStrings.isEmpty, boxStrings.count <= 4 else {
+            throw AppError.invalidArguments("\(flag) must contain one to four x,y,width,height boxes.")
+        }
+
+        return try boxStrings.map { part in
+            let values = part.split(separator: ",", omittingEmptySubsequences: false)
+            guard values.count == 4,
+                  let x = Double(values[0]),
+                  let y = Double(values[1]),
+                  let width = Double(values[2]),
+                  let height = Double(values[3]),
+                  x.isFinite,
+                  y.isFinite,
+                  width.isFinite,
+                  height.isFinite,
+                  width > 0,
+                  height > 0 else {
+                throw AppError.invalidArguments("Invalid \(flag) value '\(raw)'. Expected x,y,width,height;x,y,width,height.")
+            }
+            return CGRect(x: x, y: y, width: width, height: height)
+        }
     }
 
     private static func value(after flag: String, in args: [String], index: inout Int) throws -> String {
@@ -258,6 +443,42 @@ enum Arguments {
             throw AppError.invalidArguments("\(flag) must be a positive integer.")
         }
         return value
+    }
+
+    private static func int(after flag: String, in args: [String], index: inout Int) throws -> Int {
+        let raw = try value(after: flag, in: args, index: &index)
+        guard let value = Int(raw) else {
+            throw AppError.invalidArguments("\(flag) must be an integer.")
+        }
+        return value
+    }
+
+    private static func nonNegativeInt(after flag: String, in args: [String], index: inout Int) throws -> Int {
+        let raw = try value(after: flag, in: args, index: &index)
+        guard let value = Int(raw), value >= 0 else {
+            throw AppError.invalidArguments("\(flag) must be a non-negative integer.")
+        }
+        return value
+    }
+
+    private static func float(after flag: String, in args: [String], index: inout Int) throws -> Float {
+        let raw = try value(after: flag, in: args, index: &index)
+        guard let value = Float(raw), value.isFinite else {
+            throw AppError.invalidArguments("\(flag) must be a finite number.")
+        }
+        return value
+    }
+
+    private static func bool(after flag: String, in args: [String], index: inout Int) throws -> Bool {
+        let raw = try value(after: flag, in: args, index: &index).lowercased()
+        switch raw {
+        case "true", "yes", "1":
+            return true
+        case "false", "no", "0":
+            return false
+        default:
+            throw AppError.invalidArguments("\(flag) must be true or false.")
+        }
     }
 }
 

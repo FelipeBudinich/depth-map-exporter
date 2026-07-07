@@ -15,10 +15,15 @@ electron-ui/yarn-error.log*
 
 # Local test and generated media
 test-input*.mp4
+test.mp4
+test2.mp4
 *-depth.mp4
 *-depth-audio.mp4
 *-depth-test.mp4
 *-depth-test-audio.mp4
+tracked-boxes*.mp4
+tracked-boxes*.mov
+tracked-boxes*.json
 
 # macOS app packaging leftovers
 *.dmg

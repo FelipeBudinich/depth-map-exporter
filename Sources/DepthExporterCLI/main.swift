@@ -247,8 +247,14 @@ do {
     case .help:
         print(Arguments.usage)
         exit(0)
+    case .trackBoxesSelfTest:
+        try TrackBoxesSelfTests.run()
+        exit(0)
     case .run(let config):
         try run(config)
+        exit(0)
+    case .trackBoxes(let options):
+        try runTrackBoxes(options)
         exit(0)
     }
 } catch let error as AppError {

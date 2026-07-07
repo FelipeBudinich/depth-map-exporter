@@ -104,6 +104,47 @@ Compiled Core ML models are cached under:
 
 Some Core ML packages expose a strict enumerated image input size. When that happens, `depth-exporter` uses the model-required input size and reports that choice on stderr; flexible models use the aspect-derived `--model-short-side` and `--model-size-multiple` settings. If the source and model aspect ratios differ, default preprocessing stretches to the model input size unless letterboxing is explicitly enabled.
 
+## Bounding Box Tracking
+
+`track-boxes` is a CLI-only Apple-native tracker for drawing stable colored people boxes over the original video. It uses AVFoundation, Vision, Core Image, and Core Graphics; it does not use the depth model, segmentation masks, FFmpeg, Python, Node.js, OpenCV, or extra ML dependencies.
+
+```sh
+.build/arm64-apple-macosx/release/depth-exporter \
+  track-boxes input.mp4 \
+  --output tracked-boxes.mov \
+  --people-count 2 \
+  --dead-reckoning-window 120 \
+  --debug-json tracked-boxes.json \
+  --overwrite
+```
+
+Manual seed boxes are accepted as `x,y,width,height` values in output pixel coordinates:
+
+```sh
+.build/arm64-apple-macosx/release/depth-exporter \
+  track-boxes input.mp4 \
+  --output tracked-boxes-manual.mov \
+  --people-count 2 \
+  --initial-boxes "120,80,260,720;520,90,250,710" \
+  --dead-reckoning-window 120 \
+  --debug-json tracked-boxes-manual.json \
+  --overwrite
+```
+
+Tracker colors are assigned by track order: red, blue, yellow, then green. Auto initialization scans the first `--init-scan-frames` frames with Vision human-rectangle detection. Forward tracking uses one Vision object tracker per person; when a tracker drops below `--tracker-confidence-threshold`, the CLI can reacquire from periodic human detections and otherwise dead-reckons for up to `--max-dead-reckon-frames`. A backward pass fills frames before the auto-detected anchor frame, and the correction window interpolates short gaps without changing track IDs.
+
+Useful options:
+
+- `--people-count <1...4>` is required.
+- `--initial-boxes <boxes>` bypasses auto initialization and starts from frame 0.
+- `--tracking-level fast|accurate` controls Vision object tracking quality. Default: `accurate`.
+- `--reacquire-enabled true|false` and `--reacquire-interval <int>` control periodic Vision human-rectangle recovery.
+- `--draw-labels true|false` toggles labels.
+- `--debug` draws source/style details and includes source labels.
+- `--debug-json <path>` writes per-frame/per-track rectangles, confidence, source, velocity, missing count, raw forward/backward tracker output, reacquire candidates, and rejection reasons.
+
+Internal collision handling rejects obvious cross-track collapse when candidate boxes overlap heavily, keeping color identities stable instead of swapping or merging tracks.
+
 ## Troubleshooting
 
 - `Model does not expose an image input`: use a Core ML model that accepts an image input.
